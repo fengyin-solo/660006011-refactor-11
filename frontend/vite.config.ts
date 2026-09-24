@@ -11,6 +11,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    fs: {
+      // 允许访问仓库根目录下的 shared/ 共用定义
+      allow: ['..']
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:8000',

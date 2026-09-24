@@ -2,61 +2,38 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
+import json
 import re
 import uuid
 import random
 from datetime import datetime
+from pathlib import Path
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 app = FastAPI(title="Smart Contract Security Auditor")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-# Vulnerability patterns
-VULNERABILITY_PATTERNS = [
-    {
-        "type": "重入攻击 (Reentrancy)",
-        "severity": "critical",
-        "pattern": r"\.call\{[^}]*value:\s*[^}]*\}\([^)]*\)",
-        "description": "使用低级call()或send()转移ETH存在重入攻击风险。攻击者可部署恶意合约在fallback中反复调用提款。",
-        "suggestion": "使用Checks-Effects-Interactions模式，或引入ReentrancyGuard。推荐使用transfer()或call()并限制Gas。"
-    },
-    {
-        "type": "整数溢出 (Integer Overflow/Underflow)",
-        "severity": "high",
-        "pattern": r"[+\-*/]\s*=|(&&|\|\|)\s*\w+\s*[<>=]",
-        "description": "Solidity 0.7及以下版本，未使用SafeMath时可能发生整数溢出。",
-        "suggestion": "使用SafeMath库或升级到Solidity 0.8+（内置溢出检查）。"
-    },
-    {
-        "type": "未授权访问控制",
-        "severity": "high",
-        "pattern": r"function\s+\w+\s*\([^)]*\)\s*public\s*(payable)?\s*\{[^}]*(?:require|if)\s*\(",
-        "description": "关键函数缺少访问控制检查，任何人都可以调用。",
-        "suggestion": "添加onlyOwner或自定义访问控制修饰符。"
-    },
-    {
-        "type": "selfdestruct使用",
-        "severity": "medium",
-        "pattern": r"selfdestruct|suicide",
-        "description": "selfdestruct可强制将合约所有ETH发送到任意地址，可能被滥用。",
-        "suggestion": "谨慎使用selfdestruct，确保有正当的业务需求。"
-    },
-    {
-        "type": "tx.origin钓鱼",
-        "severity": "high",
-        "pattern": r"tx\.origin",
-        "description": "使用tx.origin进行身份验证可能被钓鱼攻击，攻击者诱导用户触发交易。",
-        "suggestion": "使用msg.sender代替tx.origin进行身份验证。"
-    },
-    {
-        "type": "精确度损失",
-        "severity": "medium",
-        "pattern": r"/\s*\d+",
-        "description": "除法运算可能导致精度损失，特别是在代币金额计算中。",
-        "suggestion": "先乘后除，使用高精度计算或使用Babylonian方法。"
-    },
-]
+# Vulnerability patterns: single shared definition, also consumed by the frontend.
+# Do not redefine patterns here — edit shared/vulnerability-patterns.json instead.
+SHARED_PATTERNS_FILE = Path(__file__).resolve().parents[2] / "shared" / "vulnerability-patterns.json"
+
+def load_vulnerability_patterns() -> List[dict]:
+    """Load the shared vulnerability pattern definitions."""
+    with open(SHARED_PATTERNS_FILE, encoding="utf-8") as f:
+        shared = json.load(f)
+    return [
+        {
+            "type": p["name"],
+            "severity": p["severity"],
+            "pattern": p["regex"],
+            "description": p["description"],
+            "suggestion": p["suggestion"],
+        }
+        for p in shared
+    ]
+
+VULNERABILITY_PATTERNS = load_vulnerability_patterns()
 
 GAS_PATTERNS = [
     {"function": "storage_read", "issue": "循环中读取storage变量", "saving": 0.3},

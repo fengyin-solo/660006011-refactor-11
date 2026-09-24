@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import axios from 'axios'
+import type { ApiResponse } from '@/types'
 
 export interface AuditResult {
   id: string
