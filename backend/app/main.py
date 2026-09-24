@@ -9,54 +9,14 @@ from datetime import datetime
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
+from app.patterns import get_scan_patterns
+
 app = FastAPI(title="Smart Contract Security Auditor")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-# Vulnerability patterns
-VULNERABILITY_PATTERNS = [
-    {
-        "type": "重入攻击 (Reentrancy)",
-        "severity": "critical",
-        "pattern": r"\.call\{[^}]*value:\s*[^}]*\}\([^)]*\)",
-        "description": "使用低级call()或send()转移ETH存在重入攻击风险。攻击者可部署恶意合约在fallback中反复调用提款。",
-        "suggestion": "使用Checks-Effects-Interactions模式，或引入ReentrancyGuard。推荐使用transfer()或call()并限制Gas。"
-    },
-    {
-        "type": "整数溢出 (Integer Overflow/Underflow)",
-        "severity": "high",
-        "pattern": r"[+\-*/]\s*=|(&&|\|\|)\s*\w+\s*[<>=]",
-        "description": "Solidity 0.7及以下版本，未使用SafeMath时可能发生整数溢出。",
-        "suggestion": "使用SafeMath库或升级到Solidity 0.8+（内置溢出检查）。"
-    },
-    {
-        "type": "未授权访问控制",
-        "severity": "high",
-        "pattern": r"function\s+\w+\s*\([^)]*\)\s*public\s*(payable)?\s*\{[^}]*(?:require|if)\s*\(",
-        "description": "关键函数缺少访问控制检查，任何人都可以调用。",
-        "suggestion": "添加onlyOwner或自定义访问控制修饰符。"
-    },
-    {
-        "type": "selfdestruct使用",
-        "severity": "medium",
-        "pattern": r"selfdestruct|suicide",
-        "description": "selfdestruct可强制将合约所有ETH发送到任意地址，可能被滥用。",
-        "suggestion": "谨慎使用selfdestruct，确保有正当的业务需求。"
-    },
-    {
-        "type": "tx.origin钓鱼",
-        "severity": "high",
-        "pattern": r"tx\.origin",
-        "description": "使用tx.origin进行身份验证可能被钓鱼攻击，攻击者诱导用户触发交易。",
-        "suggestion": "使用msg.sender代替tx.origin进行身份验证。"
-    },
-    {
-        "type": "精确度损失",
-        "severity": "medium",
-        "pattern": r"/\s*\d+",
-        "description": "除法运算可能导致精度损失，特别是在代币金额计算中。",
-        "suggestion": "先乘后除，使用高精度计算或使用Babylonian方法。"
-    },
-]
+# 漏洞模式统一从共用定义 shared/vulnerability-patterns.json 生成，
+# 前端模式库与前端审计入口使用同一份定义，避免两边口径不一致。
+VULNERABILITY_PATTERNS = get_scan_patterns()
 
 GAS_PATTERNS = [
     {"function": "storage_read", "issue": "循环中读取storage变量", "saving": 0.3},
@@ -72,7 +32,7 @@ def detect_vulnerabilities(code: str) -> List[dict]:
     """Scan code for vulnerability patterns"""
     lines = code.split("\n")
     vulnerabilities = []
-    
+
     for vp in VULNERABILITY_PATTERNS:
         matches = re.finditer(vp["pattern"], code, re.MULTILINE)
         for m in matches:
@@ -81,7 +41,7 @@ def detect_vulnerabilities(code: str) -> List[dict]:
             context_start = max(0, line_num - 2)
             context_end = min(len(lines), line_num + 2)
             context = "\n".join(lines[context_start:context_end])
-            
+
             vulnerabilities.append({
                 "type": vp["type"],
                 "severity": vp["severity"],
@@ -90,7 +50,7 @@ def detect_vulnerabilities(code: str) -> List[dict]:
                 "suggestion": vp["suggestion"],
                 "code": context.strip()
             })
-    
+
     return vulnerabilities
 
 def compute_gas_issues(code: str) -> List[dict]:
@@ -128,7 +88,7 @@ async def audit_contract(request: AuditRequest):
     vulnerabilities = detect_vulnerabilities(request.code)
     gas_issues = compute_gas_issues(request.code)
     score = compute_security_score(vulnerabilities)
-    
+
     result = {
         "id": str(uuid.uuid4()),
         "filename": request.filename,
@@ -137,7 +97,7 @@ async def audit_contract(request: AuditRequest):
         "gasIssues": gas_issues,
         "timestamp": datetime.now().isoformat()
     }
-    
+
     return {"code": 0, "message": "success", "data": result}
 
 @app.get("/api/history")
